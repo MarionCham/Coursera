@@ -1,0 +1,155 @@
+---
+title: "Coursera - Mooc Machine Learning - Project"
+output: html_document
+---
+
+## Step #1: Upload libraries
+```{r}
+library(dplyr)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(gbm)
+library(randomForest)
+library(plyr)
+library(MASS)
+```
+
+## Step #2: Upload the datasets (training and testing)
+```{r}
+training <- read.csv("pml-training.csv")
+dim(training)
+
+testing<- read.csv("pml-testing.csv")
+dim(testing)
+```
+
+
+## Step #3: Data management
+
+### 1. Seed creation - to make it reproducible
+```{r}
+set.seed (14)
+```
+
+### 2. Remove empty features in the training dataset : features with 95% of more of null, empty, N/A,. modalities
+```{r}
+df_train <- data.frame(matrix(ncol = 0, nrow = nrow(training)))
+var_delete <- c()
+for ( i in 1:ncol(training)){
+  var_temp <- training[i]
+  to_delete <- is.null(var_temp) | is.na(var_temp) | var_temp=="" | var_temp=="#DIV/0!" 
+  d <- data.frame(var = var_temp, to_delete=to_delete)
+  n <- nrow( d %>% filter(to_delete != TRUE) )
+  percent_non_null <- n/nrow(var_temp)
+  if(n>1 & percent_non_null>=0.05) {
+    df_train  <- cbind(df_train, var_temp) 
+  } else {
+    var_delete <- c(var_delete,names(var_temp))
+  }
+}
+# class(df_train)
+# var_delete
+dim(df_train)
+```
+
+### 3.	Remove non-logical features in the training dataset 
+```{r}
+df_train <- df_train[-1] # remove X
+df_train <- df_train[-2] # remove user_name
+dim(df_train)
+```
+
+### 4.	Remove the same variables in the testing dataset
+```{r}
+testing <- testing[colnames(df_train[,-58])]
+dim(testing)
+```
+
+### 5.	Split the training dataset in a train part (60%) and a test part (40%) for cross-validaton
+The model will be fitted on the subTraining dataset, and tested on the subTesting dataset. Once the most accurate model is choosen, it will be tested on the original testing dataset.
+```{r}
+inTrain = createDataPartition(y=df_train$classe, p = 0.6, list=FALSE)
+df_training = df_train[inTrain,]
+df_testing = df_train[-inTrain,]
+# View(df_training)
+# View(df_testing)
+dim(df_training)
+dim(df_testing)
+```
+
+### 6. Coerce the data into the same type
+```{r}
+for (i in 1:length(testing) ) {
+  for(j in 1:length(df_training)) {
+    if( length( grep(names(df_training[i]), names(testing)[j]) ) ==1)  {
+      class(testing[j]) <- class(df_training[i])
+    }      
+  }      
+}
+testing <- rbind(df_training[2, -58] , testing) 
+testing <- testing[-1,]
+```
+
+## Step #4: Modelings
+For each method, the modeling was done on the train part of the training dataset (60%), and the prediction was done on the test part of this dataset (40%). It's the cross-validation. Then the accuracy was calculated to compared the different methods, and the method with the best accuracy will be choosen.
+
+### Method 1: Decision Tree
+```{r}
+# modeling
+fitdt <-rpart(classe~.,data=df_training, method="class")
+fancyRpartPlot(fitdt)
+# prediction
+preddt <- predict(fitdt,df_testing, type="class")
+#confusionMatrix(preddt, df_testing$classe)
+accuracy_dt <- nrow( df_testing[preddt == df_testing$classe,]) / nrow(df_testing)
+accuracy_dt
+```
+### Method 2: Boosted tree
+```{r}
+# modeling
+fitgbm <-train(classe~.,data=df_training, method="gbm", verbose=FALSE) 
+#fitgbm$finalModel
+
+# prediction
+predgbm <- predict(fitgbm,df_testing)
+#confusionMatrix(predgbm, df_testing$classe)
+accuracy_gbm <- nrow( df_testing[predgbm == df_testing$classe,]) / nrow(df_testing)
+accuracy_gbm
+```
+### Method 3: Discriminant Analysis
+```{r}
+# modeling
+fitlda <-train(classe~.,data=df_training,method="lda", type="class") 
+#fitlda$finalModel
+
+# prediction
+predlda <- predict(fitlda,df_testing)
+# confusionMatrix(predlda, df_testing$classe)
+accuracy_lda <- nrow( df_testing[predlda == df_testing$classe,]) / nrow(df_testing)
+accuracy_lda
+```
+### Method 4: Random Forest
+```{r}
+# modeling
+fitrf <-train(classe~.,data=df_training, method="rf", type="class") 
+#fitrf$finalModel
+
+# prediction
+predrf <- predict(fitrf,df_testing)
+#confusionMatrix(predrf, df_testing$classe)
+accuracy_rf <- nrow( df_testing[predrf == df_testing$classe,]) / nrow(df_testing)
+accuracy_rf
+```
+## Step #5: Prediction on testing dataset
+The best accuracy is achieved with the random forest method, so I chose this method to predict the classe in the testing dataset.
+The expected out-of-sample error is 0.02% (1 - accuracy).
+Thus, with this model, I expected less than 1 error in te testing dataset (0.02%*20 =0.04 < 1).
+```{r}
+pred_testing_final <- predict(fitrf,testing)
+
+# Add prediction in the testing dataset
+testing$predict <- pred_testing_final 
+View(testing)
+```
